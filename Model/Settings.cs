@@ -10,6 +10,9 @@ namespace Simvars.Model
         public string CommunityFolderPath;
         public string AdditionalFolderPath;
         public int MaximumAmountOfPlanes;
+        // Experimental: hand IFR airliners that have a known route to MSFS native ATC
+        // (AICreateEnrouteATCAircraft) instead of driving them from live data.
+        public bool UseNativeAtc;
 
         public void Save()
         {

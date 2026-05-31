@@ -18,7 +18,19 @@ namespace Simvars.Util
         private int MaxPlanes = 60;
         private List<Addon> _addons;
         private int _teleportFixDelay = 30;
-        private int toOnGround;
+        private bool _useNativeAtc = false;
+
+        // Waypoint refresh cadence (seconds) per phase. Tighter tracking on final approach and
+        // for nimble GA traffic reduces the chance of an aircraft overflying the runway.
+        private const int _approachFixDelay = 8;
+        private const int _gaFixDelay = 12;
+
+        // Ground movement tuning.
+        private const double _taxiSpeedMaxKts = 25;   // realistic taxi cap
+        private const double _taxiSpeedMinKts = 6;    // keep the AI rolling rather than stalling
+        private const double _groundResyncMeters = 120; // re-sync (teleport) only when the AI drifts this far
+        private const double _touchdownRolloutMeters = 250; // forward rollout after landing
+        private const double _taxiLeadMeters = 40;          // short lead so the AI keeps moving while taxiing
 
         public string excludeAirportOrigin;
         public string excludeAirportDestination;
@@ -41,6 +53,7 @@ namespace Simvars.Util
 
             Settings settings = SettingsReader.FetchSettings();
             if (settings.MaximumAmountOfPlanes >= 0) MaxPlanes = settings.MaximumAmountOfPlanes;
+            _useNativeAtc = settings.UseNativeAtc;
             _addons = AddonScanner.ScanAddons();
         }
 
@@ -73,9 +86,14 @@ namespace Simvars.Util
                 };
                 // _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneLocation,
                 // aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, position);
-                var request = DataRequests.AI_RELEASE + _requestCount;
-                _requestCount = (_requestCount + 1) % 10000;
-                _simConnect.AIReleaseControl(objectId, request);
+                // Native-ATC aircraft are flown by the sim from their flight plan, so we must NOT
+                // release control back to the client for them.
+                if (!aircraft.atcControlled)
+                {
+                    var request = DataRequests.AI_RELEASE + _requestCount;
+                    _requestCount = (_requestCount + 1) % 10000;
+                    _simConnect.AIReleaseControl(objectId, request);
+                }
             }
 
         }
@@ -164,7 +182,14 @@ namespace Simvars.Util
                         corrTime1 = DateTime.Now
                     };
                     aircraft.matchedModel = ModelMatching.MatchModel(aircraft, _addons);
-
+                    aircraft.flightRule = FlightClassifier.Classify(aircraft);
+                    aircraft.lastSimLatitude = latitude;
+                    aircraft.lastSimLongitude = longitude;
+                    aircraft.wasAirborne = !isGrounded;
+                    // Hand airborne IFR airliners with a known route to native ATC (opt-in).
+                    aircraft.atcControlled = _useNativeAtc && !isGrounded &&
+                                             aircraft.flightRule == FlightRule.IFR &&
+                                             !string.IsNullOrWhiteSpace(aircraft.airportDestination);
 
                     if (!isGrounded)
                     {
@@ -198,129 +223,25 @@ namespace Simvars.Util
                 if (!aircraft.infoExclude.Contains("EXCLUDED"))
                 {
                     if (aircraft.speed < 9) aircraft.isGrounded = true; //Slow GA Traffic should be grounded in this way
+
+                    // Keep the estimated flight rule current as the live data evolves.
+                    aircraft.flightRule = FlightClassifier.Classify(aircraft);
+
                     //Here starts the handling for the movement
                     // *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
-                    if (!aircraft.isGrounded) // Update a waypoint of an aircraft in flight with every third data retrieval...
+                    // ATC-controlled aircraft are flown by the sim's native ATC; we do not drive them.
+                    if (!aircraft.atcControlled)
                     {
-                        if (aircraft.icaoAirline == "") _teleportFixDelay = 10; _teleportFixDelay = 30; // Info for JAAP: Faster waypoints for GA traffic that the reactions are faster and the course is more reliable
-                        if ((DateTime.Now - aircraft.corrTime).Seconds > _teleportFixDelay && aircraft.speed > 20 && aircraft.onceFixAltitudeCallsign != aircraft.callsign) // speed>30 = controll if should start or if landing happend onceFixAltitude Airplains should not touched    && aircraft.onceFixAltitudeCallsign != aircraft.callsign
+                        if (!aircraft.isGrounded)
                         {
-                            aircraft.onceFixAltitudeCallsign = aircraft.callsign;
-                            aircraft.corrTime = DateTime.Now;// Info for JAAP - This is new because if you don't actualize the time then the fixing will only done once and not every _teleportFixDelay - that means that the airplane fliy straight ahen and does not follow the course
-                            // Info for JAAP - Before start set the heading of the runway! That's necessary because turning on the night textures only works with the waypoint function and that lets the plane rotate on the spot snd therefor the heading is noct the same as the runway after 30 seconds
-                            if (!aircraft.alignHeading && (aircraft.longitudeBefore > 0 || aircraft.latitudeBefore > 0)) // Info for JAAP: Only for airplanes they are movements on the ground before!
-                            {
-                                if (aircraft.DepartingHeadingCheck) // Check if the plane is starting and give them the correct heading
-                                {
-                                    PositionData position = new PositionData
-                                    {
-                                        Latitude = aircraft.latitudeBefore,
-                                        Longitude = aircraft.longitudeBefore,
-                                        Altitude = aircraft.altimeterMeterBefore, // In flight use correct heading 
-                                        Heading = aircraft.heading, 
-                                        Pitch = 0,
-                                        Bank = 0,
-                                        Airspeed = (uint)speed,
-                                        OnGround = (uint)(isGrounded ? 0 : 1)
-                                    };
-                                    _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneLocation, aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, position);
-                                    aircraft.alignHeading = true; //important: set only once before the start
-                                }
-                                else
-                                {
-                                    PositionData position = new PositionData
-                                    {
-                                        Latitude = aircraft.latitudeBefore,
-                                        Longitude = aircraft.longitudeBefore,
-                                        Altitude = aircraft.altimeterMeterBefore,
-                                        Heading = aircraft.StartHeading, //For Start use the Runway Heading = Last Heading on Ground
-                                        Pitch = 0,
-                                        Bank = 0,
-                                        Airspeed = (uint)speed,
-                                        OnGround = (uint)(isGrounded ? 0 : 1)
-                                    };
-                                    _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneLocation, aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, position);
-                                    aircraft.alignHeading = true; //important: set only once before the start
-                                }
-                                aircraft.DepartingHeadingCheck = true; //Now calculate with the correct Heading
-                            }
-
-                            aircraft.waypoints.Add(new Waypoint()
-                            {
-                                Latitude = latitude,
-                                Longitude = longitude,
-                                Altitude = altimeter,
-                                Speed = speed,
-                                IsGrounded = isGrounded
-                            });
-                            Log.Information("Updating a flying plane " + aircraft.tailNumber + " lat: " + latitude + " long: " + longitude + " request ID: " + aircraft.requestId + " speed: " + speed + " heading: " + heading + " objectId " + aircraft.objectId);
-                            _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneWaypoints, aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetWayPointObjectArray());
+                            HandleAirborneMovement(aircraft, latitude, longitude, heading, altimeter, speed, isGrounded);
                         }
-                    }
-                    else
-                    {
-                        aircraft.isGrounded = false;
-                        aircraft.altimeterMeterBefore = 0;
-                        if (aircraft.countApproaching == 1) aircraft.speed = 50;
-                        if (aircraft.countApproaching == 0) // Grounding only when 30 seconds (delay from start) is over
+                        else
                         {
-                            PositionData position = new PositionData
-                            {
-                                Latitude = aircraft.latitude,
-                                Longitude = aircraft.longitude,
-                                Altitude = aircraft.altimeterMeter,
-                                Heading = aircraft.heading,
-                                Pitch = 0,
-                                Bank = 0,
-                                Airspeed = (uint)aircraft.speed,
-                                OnGround = 0// (uint)(isGrounded ? 0 : 1)                            
-                            };
-                            Log.Information("Setteling a grounded plane " + aircraft.tailNumber + " lat: " + aircraft.latitude + " long: " + aircraft.longitude + " request ID: " + aircraft.requestId + " speed: " + aircraft.speed + " heading: " + aircraft.heading + " objectId " + aircraft.objectId);
-                            _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneLocation, aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, position);
-
-                            // This function is neccasery to turn on the Night Textures on ground - but that let's the plane rotate on the spot
-                            aircraft.latitude = aircraft.latitude;
-                            aircraft.longitude = aircraft.longitude;
-                            aircraft.altimeter = altimeter;
-                            aircraft.speed = 10; //speed;
-                            aircraft.isGrounded = true;// isGrounded;
-                            _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneWaypoints, aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetWayPointObjectArray());
-
-
-                            aircraft.isGrounded = true;
-                            aircraft.latitudeBefore = aircraft.latitude;
-                            aircraft.longitudeBefore = aircraft.longitude;
-                            aircraft.headingBefore = aircraft.heading;
-                            aircraft.altimeterMeterBefore = aircraft.altimeterMeter;
+                            HandleGroundMovement(aircraft, latitude, longitude, heading, altimeter, speed);
                         }
-                        if (aircraft.countApproaching > 0) aircraft.countApproaching --;
-                        aircraft.StartHeading = aircraft.heading;
                     }
                     // *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-
-
-                    //Here a plane after landing will be grounded (It is important to get the waypoint and positioning to get the wheels on the ground)
-                    //*******************************************
-                    if (aircraft.isGrounded && !aircraft.onceSetGround && aircraft.countApproaching == 0)
-                    {
-                        _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneWaypoints, aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetWayPointObjectArray());
-                        aircraft.onceSetGround = true;
-                        aircraft.isGrounded = true;
-
-                        PositionData position = new PositionData
-                        {
-                            Latitude = aircraft.latitude,
-                            Longitude = aircraft.longitude,
-                            Altitude = aircraft.altimeterMeter,
-                            Heading = aircraft.heading,
-                            Pitch = 0,
-                            Bank = 0,
-                            Airspeed = (uint)aircraft.speed,
-                            OnGround = (uint)(isGrounded ? 0 : 1)
-                        };
-                        Log.Information("Setteling a grounded plane " + aircraft.tailNumber + " lat: " + aircraft.latitude + " long: " + aircraft.longitude + " request ID: " + aircraft.requestId + " speed: " + aircraft.speed + " heading: " + aircraft.heading + " objectId " + aircraft.objectId);
-                        _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneLocation, aircraft.objectId, SIMCONNECT_DATA_SET_FLAG.DEFAULT, position);
-                    }
-                    //********************************************/
 
                     // That is the function to turn on or off the teleporting of the high altitude traffic
                     if (HighAltitudeTraffic && altimeter > 9144)
@@ -497,6 +418,141 @@ namespace Simvars.Util
             }
         }
 
+        // Returns true when the aircraft looks like it is on final approach: low, slowing down
+        // and either descending or heading for a known destination. Used to track the real
+        // aircraft more tightly so the AI does not overfly the runway.
+        private static bool IsOnApproach(Aircraft aircraft, int altimeter, int speed)
+        {
+            bool descending = aircraft.altimeter > 0 && altimeter < aircraft.altimeter;
+            bool lowAndSlow = altimeter < 4000 && speed > 30 && speed < 200;
+            return lowAndSlow && (descending || !string.IsNullOrWhiteSpace(aircraft.airportDestination));
+        }
+
+        // Move an airborne aircraft by feeding it a waypoint at the live position. The refresh
+        // cadence tightens on final approach and for GA so the AI follows the real track down to
+        // the runway instead of flying past it on a stale, far-ahead waypoint.
+        private void HandleAirborneMovement(Aircraft aircraft, double latitude, double longitude, int heading,
+            int altimeter, int speed, bool isGrounded)
+        {
+            aircraft.wasAirborne = true;
+            // Leaving the ground again (a new departure) re-arms the landing logic for next time.
+            aircraft.hasLandedThisFlight = false;
+
+            int delay = IsOnApproach(aircraft, altimeter, speed)
+                ? _approachFixDelay
+                : (string.IsNullOrEmpty(aircraft.icaoAirline) ? _gaFixDelay : _teleportFixDelay);
+
+            if ((DateTime.Now - aircraft.corrTime).TotalSeconds <= delay || speed <= 20 ||
+                aircraft.onceFixAltitudeCallsign == aircraft.callsign)
+            {
+                return;
+            }
+
+            aircraft.corrTime = DateTime.Now;
+
+            // Before the very first in-air correction of a departing aircraft, align it to the
+            // runway heading once (the waypoint API otherwise rotates it on the spot).
+            if (!aircraft.alignHeading && (aircraft.longitudeBefore > 0 || aircraft.latitudeBefore > 0))
+            {
+                PositionData alignPosition = new PositionData
+                {
+                    Latitude = aircraft.latitudeBefore,
+                    Longitude = aircraft.longitudeBefore,
+                    Altitude = aircraft.altimeterMeterBefore,
+                    Heading = aircraft.StartHeading,
+                    Pitch = 0,
+                    Bank = 0,
+                    Airspeed = (uint)speed,
+                    OnGround = 0
+                };
+                _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneLocation, aircraft.objectId,
+                    SIMCONNECT_DATA_SET_FLAG.DEFAULT, alignPosition);
+                aircraft.alignHeading = true;
+                aircraft.DepartingHeadingCheck = true;
+            }
+
+            aircraft.waypoints.Add(new Waypoint()
+            {
+                Latitude = latitude,
+                Longitude = longitude,
+                Altitude = altimeter,
+                Speed = speed,
+                IsGrounded = isGrounded
+            });
+            Log.Information("Updating a flying plane " + aircraft.tailNumber + " lat: " + latitude + " long: " +
+                longitude + " request ID: " + aircraft.requestId + " speed: " + speed + " heading: " + heading +
+                " objectId " + aircraft.objectId + " rule: " + aircraft.flightRule);
+            _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneWaypoints, aircraft.objectId,
+                SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetAirWaypoint(latitude, longitude, altimeter, speed));
+
+            aircraft.lastSimLatitude = latitude;
+            aircraft.lastSimLongitude = longitude;
+        }
+
+        // Drive a grounded aircraft smoothly. Normal taxi is done with an ON_GROUND waypoint
+        // toward the new live point at a realistic taxi speed. We only teleport (re-sync) on the
+        // first placement, right after touchdown, or when the AI has drifted too far to catch up.
+        private void HandleGroundMovement(Aircraft aircraft, double latitude, double longitude, int heading,
+            int altimeter, int speed)
+        {
+            bool justLanded = aircraft.wasAirborne && !aircraft.hasLandedThisFlight;
+
+            double fromLat = aircraft.lastSimLatitude != 0 ? aircraft.lastSimLatitude : aircraft.latitude;
+            double fromLon = aircraft.lastSimLongitude != 0 ? aircraft.lastSimLongitude : aircraft.longitude;
+            double driftMeters = GeoUtil.DistanceMeters(fromLat, fromLon, latitude, longitude);
+
+            double taxiSpeed = Math.Min(_taxiSpeedMaxKts, Math.Max(_taxiSpeedMinKts, speed));
+
+            bool needResync = !aircraft.onceSetGround || justLanded || driftMeters > _groundResyncMeters;
+
+            if (needResync)
+            {
+                // Plant firmly on the ground (correct OnGround flag) at the live point, then roll
+                // forward along the current heading. A freshly landed aircraft gets a long rollout
+                // so it decelerates down the runway instead of snapping into a taxi-in state.
+                PositionData position = new PositionData
+                {
+                    Latitude = latitude,
+                    Longitude = longitude,
+                    Altitude = 0,
+                    Heading = heading,
+                    Pitch = 0,
+                    Bank = 0,
+                    Airspeed = (uint)taxiSpeed,
+                    OnGround = 1
+                };
+                Log.Information((justLanded ? "Landing/rollout " : "Re-syncing grounded ") + aircraft.tailNumber +
+                    " lat: " + latitude + " long: " + longitude + " heading: " + heading + " objectId " +
+                    aircraft.objectId + " rule: " + aircraft.flightRule);
+                _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneLocation, aircraft.objectId,
+                    SIMCONNECT_DATA_SET_FLAG.DEFAULT, position);
+
+                double rolloutDistance = justLanded ? _touchdownRolloutMeters : _taxiLeadMeters;
+                GeoUtil.Project(latitude, longitude, heading, rolloutDistance, out double rolloutLat, out double rolloutLon);
+                _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneWaypoints, aircraft.objectId,
+                    SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetGroundWaypoint(rolloutLat, rolloutLon, taxiSpeed));
+
+                aircraft.onceSetGround = true;
+                aircraft.hasLandedThisFlight = true;
+            }
+            else
+            {
+                // Smooth taxi: command the AI to drive to the new live point along the ground.
+                _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneWaypoints, aircraft.objectId,
+                    SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetGroundWaypoint(latitude, longitude, taxiSpeed));
+            }
+
+            aircraft.lastSimLatitude = latitude;
+            aircraft.lastSimLongitude = longitude;
+            aircraft.StartHeading = heading; // remember runway/taxi heading for a later departure
+            aircraft.latitudeBefore = latitude;
+            aircraft.longitudeBefore = longitude;
+            aircraft.headingBefore = heading;
+            aircraft.altimeterMeterBefore = 0;
+            aircraft.wasAirborne = false;
+            aircraft.isGrounded = true;
+        }
+
         private void DespawnOldPlanes(List<string> flightradarIds)
         {
             List<Aircraft> removedPlanes = new List<Aircraft>();
@@ -526,6 +582,14 @@ namespace Simvars.Util
             aircraft.requestId = (10000 + _requestCount);
             Log.Information(@"Spawning a plane " + aircraft.tailNumber + " lat: " + aircraft.latitude + " long: " + aircraft.longitude + " request ID: " + aircraft.requestId);
             _requestCount = (_requestCount + 1) % 10000;
+
+            if (aircraft.infoExclude == aircraft.callsign) return;
+
+            // Experimental: create the aircraft under native ATC using a generated flight plan.
+            if (aircraft.atcControlled && TrySpawnWithNativeAtc(aircraft, requestId)) return;
+
+            // Default: client-driven non-ATC aircraft positioned from the live data.
+            aircraft.atcControlled = false;
             var position = new SIMCONNECT_DATA_INITPOSITION
             {
                 Latitude = aircraft.latitude,
@@ -534,12 +598,29 @@ namespace Simvars.Util
                 Pitch = 0,
                 Bank = 0,
                 Heading = aircraft.heading,
-                OnGround = (uint)(aircraft.isGrounded ? 0 : 1),
+                OnGround = (uint)(aircraft.isGrounded ? 1 : 0),
                 Airspeed = (uint)(aircraft.speed-((aircraft.speed/100)*50))
             };
-            if(aircraft.infoExclude != aircraft.callsign)
             _simConnect.AICreateNonATCAircraft(aircraft.matchedModel, aircraft.tailNumber, position, requestId);
+        }
 
+        // Creates an aircraft managed by MSFS native ATC from a generated flight plan. Returns
+        // false (so the caller falls back to non-ATC) if the plan could not be written.
+        private bool TrySpawnWithNativeAtc(Aircraft aircraft, DataRequests requestId)
+        {
+            string planPath = FlightPlanWriter.WriteDirectPlan(aircraft);
+            if (string.IsNullOrEmpty(planPath)) return false;
+
+            int flightNumber = 0;
+            foreach (char c in aircraft.callsign ?? string.Empty)
+            {
+                if (char.IsDigit(c)) flightNumber = flightNumber * 10 + (c - '0');
+            }
+
+            Log.Information($"Spawning {aircraft.callsign} under native ATC with plan {planPath}");
+            _simConnect.AICreateEnrouteATCAircraft(aircraft.matchedModel, aircraft.tailNumber, flightNumber,
+                planPath, 0.0, false, requestId);
+            return true;
         }
     }
 }

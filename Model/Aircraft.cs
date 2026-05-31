@@ -2,6 +2,7 @@ using Microsoft.FlightSimulator.SimConnect;
 using System;
 using System.Collections.Generic;
 using Serilog;
+using Simvars.Emum;
 
 namespace Simvars.Model
 {
@@ -24,6 +25,19 @@ namespace Simvars.Model
         public bool onceSetGround { get; set; } = false;
         public bool DepartingHeadingCheck { get; set; } = false;
 
+        // Estimated IFR/VFR flight rule, derived from the live data (see FlightClassifier).
+        public FlightRule flightRule { get; set; } = FlightRule.Unknown;
+        public string flightRuleLabel { get => flightRule == FlightRule.Unknown ? "" : flightRule.ToString(); }
+
+        // Last position we actually pushed to the sim. Used to drive smooth ground
+        // movement and to detect when the AI has drifted far enough to need a re-sync.
+        public double lastSimLatitude { get; set; }
+        public double lastSimLongitude { get; set; }
+        public bool hasLandedThisFlight { get; set; } = false;
+        public bool wasAirborne { get; set; } = false;
+        // True when this aircraft was handed to MSFS native ATC and should not be driven by us.
+        public bool atcControlled { get; set; } = false;
+
         #endregion SimData
 
         #region Aircraft
@@ -37,9 +51,17 @@ namespace Simvars.Model
         public string modelCode { get; set; }
         public string infoExclude { get; set; }
 
-        public string shorterModelCode { get => modelCode.Remove(modelCode.Length - 1, 1); }
+        public string shorterModelCode
+        {
+            get => string.IsNullOrEmpty(modelCode) ? string.Empty
+                : (modelCode.Length <= 1 ? modelCode : modelCode.Remove(modelCode.Length - 1, 1));
+        }
 
-        public string shortModel { get => model.Substring(0, model.IndexOf('-') > -1 ? model.IndexOf('-') : model.Length); }
+        public string shortModel
+        {
+            get => string.IsNullOrEmpty(model) ? string.Empty
+                : model.Substring(0, model.IndexOf('-') > -1 ? model.IndexOf('-') : model.Length);
+        }
 
         #endregion Aircraft
 
@@ -131,6 +153,47 @@ namespace Simvars.Model
             wp[0].Latitude = latitude;
             wp[0].Longitude = longitude;
             wp[0].ktsSpeed = speed;
+
+            var obj = new Object[wp.Length];
+            wp.CopyTo(obj, 0);
+            return obj;
+        }
+
+        /// <summary>
+        /// Build a single ON_GROUND waypoint targeting a specific point at a taxi speed.
+        /// Used to make the AI drive along the ground (taxi / rollout) instead of being
+        /// teleported every update.
+        /// </summary>
+        public object[] GetGroundWaypoint(double targetLatitude, double targetLongitude, double ktsSpeed)
+        {
+            SIMCONNECT_DATA_WAYPOINT[] wp = new SIMCONNECT_DATA_WAYPOINT[1];
+            wp[0].Flags = (uint)(SIMCONNECT_WAYPOINT_FLAGS.SPEED_REQUESTED |
+                                 SIMCONNECT_WAYPOINT_FLAGS.ALTITUDE_IS_AGL |
+                                 SIMCONNECT_WAYPOINT_FLAGS.ON_GROUND);
+            wp[0].Altitude = 0;
+            wp[0].Latitude = targetLatitude;
+            wp[0].Longitude = targetLongitude;
+            wp[0].ktsSpeed = ktsSpeed;
+
+            var obj = new Object[wp.Length];
+            wp.CopyTo(obj, 0);
+            return obj;
+        }
+
+        /// <summary>
+        /// Build a single airborne waypoint targeting a specific point/altitude, letting the
+        /// sim compute the vertical speed. Used to fly an approach down to the runway.
+        /// </summary>
+        public object[] GetAirWaypoint(double targetLatitude, double targetLongitude, double altitudeFeet, double ktsSpeed)
+        {
+            SIMCONNECT_DATA_WAYPOINT[] wp = new SIMCONNECT_DATA_WAYPOINT[1];
+            wp[0].Flags = (uint)(SIMCONNECT_WAYPOINT_FLAGS.SPEED_REQUESTED |
+                                 SIMCONNECT_WAYPOINT_FLAGS.ALTITUDE_IS_AGL |
+                                 SIMCONNECT_WAYPOINT_FLAGS.COMPUTE_VERTICAL_SPEED);
+            wp[0].Altitude = altitudeFeet;
+            wp[0].Latitude = targetLatitude;
+            wp[0].Longitude = targetLongitude;
+            wp[0].ktsSpeed = ktsSpeed;
 
             var obj = new Object[wp.Length];
             wp.CopyTo(obj, 0);
