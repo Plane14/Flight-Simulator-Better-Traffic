@@ -46,6 +46,7 @@
                     <GridViewColumn Header="Model" Width="200" DisplayMemberBinding="{Binding model}" />
                     <GridViewColumn Header="Airline" Width="80" DisplayMemberBinding="{Binding airline}" />
                     <GridViewColumn Header="Rule" Width="45" DisplayMemberBinding="{Binding flightRuleLabel}" />
+                    <GridViewColumn Header="ATC" Width="40" DisplayMemberBinding="{Binding atcLabel}" />
                     <GridViewColumn Header="Departure" Width="80" DisplayMemberBinding="{Binding airportOrigin}" />
                     <GridViewColumn Header="Destination" Width="80" DisplayMemberBinding="{Binding airportDestination}" />
                     <GridViewColumn Header="Status" Width="140" DisplayMemberBinding="{Binding infoExclude}" />
@@ -112,5 +113,10 @@
         <CheckBox Content="High altitude traffic mode" IsChecked="{Binding bHigAltTrafficMode, Mode=TwoWay}" Margin="20,342,0,0"
             Grid.ColumnSpan="2" Checked="CheckBox_Checked" HorizontalContentAlignment="Left" VerticalContentAlignment="Center"  Height="16" VerticalAlignment="Top" HorizontalAlignment="Left" Width="215"/>
         <Label Content="Performance setting" HorizontalAlignment="Left" Margin="8,312,0,0" VerticalAlignment="Top" RenderTransformOrigin="1.067,0.314" Grid.ColumnSpan="2" Width="164" Height="28" FontWeight="Bold"/>
+
+        <Label Content="ATC integration" HorizontalAlignment="Left" Margin="8,372,0,0" VerticalAlignment="Top" Grid.ColumnSpan="2" Width="164" Height="28" FontWeight="Bold"/>
+        <Rectangle Grid.ColumnSpan="2" HorizontalAlignment="Left" Height="24" Margin="13,398,0,0" Stroke="Black" VerticalAlignment="Top" Width="233"/>
+        <CheckBox Content="Use MSFS native ATC (flights w/ destination)" IsChecked="{Binding bUseNativeAtc, Mode=TwoWay}" Margin="20,402,0,0"
+            Grid.ColumnSpan="2" HorizontalAlignment="Left" Width="220" Height="16" VerticalAlignment="Top"/>
     </Grid>
 </Window>
