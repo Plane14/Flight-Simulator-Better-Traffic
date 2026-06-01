@@ -463,6 +463,8 @@ namespace Simvars
             _dataTimer.Dispose();
             Log.Information(@"Disconnect");
 
+            Util.Fr24Fetcher.Shutdown();
+
             _mOTimer.Stop();
             bOddTick = false;
 

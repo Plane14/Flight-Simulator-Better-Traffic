@@ -1,0 +1,3 @@
+# Python dependencies for the FlightRadar24 Zendriver fetcher sidecar (fr24_fetcher.py).
+# Install with: python -m pip install -r requirements.txt
+zendriver>=0.15

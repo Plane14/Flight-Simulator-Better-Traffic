@@ -161,6 +161,7 @@
     </Compile>
     <Compile Include="Emum\AircraftModel.cs" />
     <Compile Include="Emum\DataRequests.cs" />
+    <Compile Include="Emum\FlightRule.cs" />
     <Compile Include="Emum\SimConnectDataDefinition.cs" />
     <Compile Include="MainWindow.xaml.cs">
       <DependentUpon>MainWindow.xaml</DependentUpon>
@@ -178,7 +179,11 @@
     <Compile Include="Struct\PositionData.cs" />
     <Compile Include="Util\AddonScanner.cs" />
     <Compile Include="Util\ApiRequest.cs" />
+    <Compile Include="Util\FlightClassifier.cs" />
+    <Compile Include="Util\FlightPlanWriter.cs" />
     <Compile Include="Util\FlightRadarApi.cs" />
+    <Compile Include="Util\Fr24Fetcher.cs" />
+    <Compile Include="Util\GeoUtil.cs" />
     <Compile Include="Util\LiveTrafficHandler.cs" />
     <Compile Include="Util\ModelMatching.cs" />
     <Compile Include="Util\SettingsReader.cs" />
@@ -204,6 +209,12 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Include="Config\Settings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="fr24_fetcher.py">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="requirements.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Include="EnhancedTrafficSign.pfx" />
