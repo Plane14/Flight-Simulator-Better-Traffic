@@ -1,5 +1,10 @@
 {
   "CommunityFolderPath": "PATH_HERE",
-  "AdditionalFolderPath": "PATH_HERE_AIG"
-  "MaximumAmountOfPlanes": 120
+  "AdditionalFolderPath": "PATH_HERE_AIG",
+  "MaximumAmountOfPlanes": 120,
+  "UseNativeAtc": false,
+  "UseZendriver": true,
+  "ZendriverPort": 8743,
+  "PythonPath": "",
+  "ChromePath": ""
 }

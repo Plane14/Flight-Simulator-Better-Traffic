@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.IO;
 using Serilog;
+using Simvars.Emum;
 using Simvars.Model;
 
 namespace Simvars.Util
@@ -25,7 +26,8 @@ namespace Simvars.Util
 
                 string departureId = string.IsNullOrWhiteSpace(aircraft.airportOrigin) ? "DEP" : aircraft.airportOrigin;
                 string destinationId = string.IsNullOrWhiteSpace(aircraft.airportDestination) ? "DEST" : aircraft.airportDestination;
-                int cruiseAlt = (int)Math.Max(aircraft.altimeter, 10000);
+                string fpType = aircraft.flightRule == FlightRule.VFR ? "VFR" : "IFR";
+                int cruiseAlt = (int)Math.Max(aircraft.altimeter, aircraft.flightRule == FlightRule.VFR ? 4500 : 10000);
 
                 // Project a destination point ahead along the current track so the plan has a direction.
                 GeoUtil.Project(aircraft.latitude, aircraft.longitude, aircraft.heading, 200000,
@@ -40,7 +42,7 @@ $@"<?xml version=""1.0"" encoding=""UTF-8""?>
   <Descr>AceXML Document</Descr>
   <FlightPlan.FlightPlan>
     <Title>{departureId} to {destinationId}</Title>
-    <FPType>IFR</FPType>
+    <FPType>{fpType}</FPType>
     <CruisingAlt>{cruiseAlt.ToString(CultureInfo.InvariantCulture)}</CruisingAlt>
     <DepartureID>{departureId}</DepartureID>
     <DepartureLLA>{depLla}</DepartureLLA>

@@ -182,6 +182,7 @@
     <Compile Include="Util\FlightClassifier.cs" />
     <Compile Include="Util\FlightPlanWriter.cs" />
     <Compile Include="Util\FlightRadarApi.cs" />
+    <Compile Include="Util\Fr24Fetcher.cs" />
     <Compile Include="Util\GeoUtil.cs" />
     <Compile Include="Util\LiveTrafficHandler.cs" />
     <Compile Include="Util\ModelMatching.cs" />
@@ -208,6 +209,12 @@
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Include="Config\Settings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="fr24_fetcher.py">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+    <None Include="requirements.txt">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
     <None Include="EnhancedTrafficSign.pfx" />

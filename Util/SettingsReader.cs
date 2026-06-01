@@ -26,7 +26,11 @@ namespace Simvars.Util
                     CommunityFolderPath = "PATH_HERE",
                     AdditionalFolderPath = "PATH_HERE_AIG", //Info for JAAP: Extended it for AIG Liveries
                     MaximumAmountOfPlanes = 60,
-                    UseNativeAtc = false
+                    UseNativeAtc = false,
+                    UseZendriver = true,
+                    ZendriverPort = 8743,
+                    PythonPath = "",
+                    ChromePath = ""
                 };
                 settings.Save();
             }

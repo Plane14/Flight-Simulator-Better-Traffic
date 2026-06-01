@@ -54,6 +54,7 @@ namespace Simvars.Util
             Settings settings = SettingsReader.FetchSettings();
             if (settings.MaximumAmountOfPlanes >= 0) MaxPlanes = settings.MaximumAmountOfPlanes;
             _useNativeAtc = settings.UseNativeAtc;
+            Fr24Fetcher.Initialize(settings);
             _addons = AddonScanner.ScanAddons();
         }
 
@@ -186,9 +187,9 @@ namespace Simvars.Util
                     aircraft.lastSimLatitude = latitude;
                     aircraft.lastSimLongitude = longitude;
                     aircraft.wasAirborne = !isGrounded;
-                    // Hand airborne IFR airliners with a known route to native ATC (opt-in).
-                    aircraft.atcControlled = _useNativeAtc && !isGrounded &&
-                                             aircraft.flightRule == FlightRule.IFR &&
+                    // Hand any flight (IFR or VFR, departing or airborne) that has a known
+                    // destination to native ATC (opt-in).
+                    aircraft.atcControlled = _useNativeAtc &&
                                              !string.IsNullOrWhiteSpace(aircraft.airportDestination);
 
                     if (!isGrounded)
