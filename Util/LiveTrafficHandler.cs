@@ -26,11 +26,17 @@ namespace Simvars.Util
         private const int _gaFixDelay = 12;
 
         // Ground movement tuning.
-        private const double _taxiSpeedMaxKts = 25;   // realistic taxi cap
-        private const double _taxiSpeedMinKts = 6;    // keep the AI rolling rather than stalling
-        private const double _groundResyncMeters = 120; // re-sync (teleport) only when the AI drifts this far
+        // Use the aircraft's real reported ground speed as the waypoint speed so the AI can keep
+        // pace with the live data between updates instead of being teleported. The ceiling only
+        // guards against absurd values (e.g. a bad data spike); rollout/takeoff speeds are allowed.
+        private const double _taxiSpeedCeilingKts = 200;
+        private const double _groundSpeedMinKts = 8;        // keep the AI rolling rather than stalling
+        private const double _groundStoppedKts = 3;         // below this the real aircraft is holding/parked
+        // Only re-sync (teleport) on a big jump that the waypoint system cannot absorb (lost sync,
+        // a data discontinuity, or a fresh placement) — not on every routine update.
+        private const double _groundResyncMeters = 1500;
         private const double _touchdownRolloutMeters = 250; // forward rollout after landing
-        private const double _taxiLeadMeters = 40;          // short lead so the AI keeps moving while taxiing
+        private const double _taxiLeadMeters = 60;          // lead so the AI rolls through the point, not stops at it
 
         public string excludeAirportOrigin;
         public string excludeAirportDestination;
@@ -45,6 +51,10 @@ namespace Simvars.Util
         public bool ExclMidAltTraffic { get; set; }
         public bool ExclHigAltTraffic { get; set; }
         public bool HighAltitudeTraffic { get; set; }
+
+        // Hand eligible aircraft (any flight with a known destination) to MSFS native ATC.
+        // Settable at runtime from the UI; only affects aircraft spawned after it is changed.
+        public bool UseNativeAtc { get => _useNativeAtc; set => _useNativeAtc = value; }
 
         public LiveTrafficHandler(SimConnect simConnect)
         {
@@ -502,7 +512,12 @@ namespace Simvars.Util
             double fromLon = aircraft.lastSimLongitude != 0 ? aircraft.lastSimLongitude : aircraft.longitude;
             double driftMeters = GeoUtil.DistanceMeters(fromLat, fromLon, latitude, longitude);
 
-            double taxiSpeed = Math.Min(_taxiSpeedMaxKts, Math.Max(_taxiSpeedMinKts, speed));
+            // Drive at the real reported ground speed so the AI traverses each leg in roughly one
+            // update interval (keeps pace -> no per-cycle teleport). Clamp only against bad data.
+            bool stopped = speed < _groundStoppedKts;
+            double taxiSpeed = stopped
+                ? _groundSpeedMinKts
+                : Math.Min(_taxiSpeedCeilingKts, Math.Max(_groundSpeedMinKts, speed));
 
             bool needResync = !aircraft.onceSetGround || justLanded || driftMeters > _groundResyncMeters;
 
@@ -538,9 +553,21 @@ namespace Simvars.Util
             }
             else
             {
-                // Smooth taxi: command the AI to drive to the new live point along the ground.
+                // Smooth taxi: command the AI to drive along the ground via an ON_GROUND waypoint.
+                // When moving, aim a short distance past the live point along the current heading so
+                // the AI rolls through it (no stop-and-go); when essentially stopped, aim at the live
+                // point itself so it can settle (holding short / parked).
+                double targetLat = latitude, targetLon = longitude;
+                if (!stopped)
+                {
+                    GeoUtil.Project(latitude, longitude, heading, _taxiLeadMeters,
+                        out targetLat, out targetLon);
+                }
+                Log.Information("Taxiing " + aircraft.tailNumber + " to lat: " + targetLat + " long: " +
+                    targetLon + " at " + taxiSpeed + " kts (drift " + (int)driftMeters + " m) objectId " +
+                    aircraft.objectId);
                 _simConnect.SetDataOnSimObject(SimConnectDataDefinition.PlaneWaypoints, aircraft.objectId,
-                    SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetGroundWaypoint(latitude, longitude, taxiSpeed));
+                    SIMCONNECT_DATA_SET_FLAG.DEFAULT, aircraft.GetGroundWaypoint(targetLat, targetLon, taxiSpeed));
             }
 
             aircraft.lastSimLatitude = latitude;

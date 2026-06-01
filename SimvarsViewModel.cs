@@ -213,6 +213,8 @@ namespace Simvars
                 _mOSimConnect.OnRecvSimobjectData += simconnect_OnRecvSimobjectData;
 
                 _liveTrafficHandler = new LiveTrafficHandler(_mOSimConnect);
+                // Reflect the configured default in the UI toggle (does not re-trigger a write).
+                bUseNativeAtc = _liveTrafficHandler.UseNativeAtc;
             }
             catch (COMException ex)
             {
@@ -628,6 +630,19 @@ namespace Simvars
         }
 
         private bool _mbHigAltTrafficMode;
+
+        // Hand eligible aircraft (any flight with a known destination) to MSFS native ATC.
+        public bool bUseNativeAtc
+        {
+            get => _mbUseNativeAtc;
+            set
+            {
+                SetProperty(ref _mbUseNativeAtc, value);
+                if (_liveTrafficHandler != null) _liveTrafficHandler.UseNativeAtc = value;
+            }
+        }
+
+        private bool _mbUseNativeAtc;
         //================================
         public bool bIsString
         {

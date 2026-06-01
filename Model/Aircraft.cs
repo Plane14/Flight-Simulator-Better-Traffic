@@ -37,6 +37,8 @@ namespace Simvars.Model
         public bool wasAirborne { get; set; } = false;
         // True when this aircraft was handed to MSFS native ATC and should not be driven by us.
         public bool atcControlled { get; set; } = false;
+        // UI label for the ATC column ("ATC" when flown by the sim's native ATC, otherwise blank).
+        public string atcLabel { get => atcControlled ? "ATC" : ""; }
 
         #endregion SimData
 
